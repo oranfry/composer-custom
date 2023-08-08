@@ -1,0 +1,172 @@
+#!/usr/bin/env php
+<?php
+
+if ($argc != 2 || !in_array($argv[1], ['local', 'remote'])) {
+    error_log('Usage: ' . $argv[0] . ' {local|remote}');
+
+    die(1);
+}
+
+map($argv[1]);
+
+function map($to_type)
+{
+    $options = [
+        $_SERVER['HOME'] . '/custom-packages.json',
+        $_SERVER['HOME'] . '/.custom-packages.json',
+    ];
+
+    foreach ($options as $option) {
+        if (is_file($option)) {
+            $config_file = $option;
+
+            break;
+        }
+    }
+
+    if (!isset($config_file)) {
+        error_log('Error: Could not file config file anywhere. Please create ' . implode(' or ', array_map(fn ($option) => '[' . $option . ']', $options)));
+        exit(1);
+    }
+
+    if (!file_exists($composer_file = 'composer.json')) {
+        error_log("Error: [composer.json] file missing. Please run from the directory where composer.json resides.");
+        exit(1);
+    }
+
+    $raw_config = json_decode(file_get_contents($config_file));
+
+    if (!is_object($raw_config)) {
+        error_log('Invalid map file [' . $config_file . ']');
+        exit(1);
+    }
+
+    $known = [];
+    $custom_packages = [];
+    $count = 0;
+
+    foreach ((array) $raw_config as $name => $package) {
+        $count++;
+
+        if (!is_string($name) || !preg_match('/^[a-z0-9]([_.-]?[a-z0-9]+)*\\/[a-z0-9](([_.]|-{1,2})?[a-z0-9]+)*$/', $name)) {
+            error_log("Error: invalid package name encounted (package #$count)");
+            exit(1);
+        }
+
+        if (!@$package->remote && !@$package->local) {
+            error_log('Error: at least local is required');
+            exit(1);
+        }
+
+        if (!@$package->local) {
+            error_log("Error: $name: remote only not supported");
+            exit(1);
+        }
+
+        if (!@$package->local->url) {
+            error_log("Error: $name (local): please provide a url");
+            exit(1);
+        }
+
+        if (!@$package->local->type) {
+            error_log("Error: $name (local): please provide a type");
+            exit(1);
+        }
+
+        $known[$package->local->url] = true;
+
+        if (@$package->remote) {
+            if (!@$package->remote->url) {
+                error_log("Error: $name (remote): please provide a url");
+                exit(1);
+            }
+
+            if (!@$package->remote->type) {
+                error_log("Error: $name (remote): please provide a type");
+                exit(1);
+            }
+
+            $known[$package->remote->url] = true;
+        }
+
+        $custom_packages[$name] = $package;
+    }
+
+    $composer = json_decode(file_get_contents($composer_file));
+
+    $composer->repositories ??= [];
+    $composer->require ??= [];
+
+    $orig_composer = json_decode(json_encode($composer)); // deep clone
+    $urls_added = [];
+
+    // prepare my removing all known repositories
+
+    foreach ($composer->repositories as $i => $repo) {
+        if (@$known[$repo->url]) {
+            unset($composer->repositories[$i]);
+        }
+    }
+
+    $composer->repositories = array_values($composer->repositories);
+
+    // restore repositories as needed, in the target type
+
+    foreach (array_keys((array) $composer->require) as $name) {
+        foreach (gather_repos($name, $to_type, $custom_packages) ?? [] as $r) {
+            if (!@$urls_added[$r->url]) {
+                $composer->repositories[] = $r;
+                $urls_added[$r->url] = true;
+            }
+        }
+    }
+
+    // sort repositories
+
+    usort($composer->repositories, fn ($a, $b) => $a->type <=> $b->type ?: $a->url <=> $b->url);
+
+    if (!$composer->repositories) {
+        unset($composer->repositories);
+    }
+
+    // sort require
+
+    if ($require = (array) @$composer->require) {
+        ksort($require);
+        $composer->require = (object) $require;
+    } else {
+        unset($composer->require);
+    }
+
+    // sort the root
+
+    $composer = (array) $composer;
+    ksort($composer);
+    $composer = (object) $composer;
+
+    if (json_encode($orig_composer) == json_encode($composer)) {
+        echo "No changes necessary\n";
+    } else {
+        file_put_contents($composer_file, json_encode($composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        echo "Wrote " . $composer_file . "\n";
+    }
+}
+
+function gather_repos(string $name, string $type, array &$packages, int $ttl = 20): array
+{
+    if ($ttl <= 0) {
+        die('Suspected recursion, ttl reached zero');
+    }
+
+    if (!$package = @$packages[$name]) {
+        return [];
+    }
+
+    $gathered = array_filter([@$package->$type]);
+
+    foreach ($package->require ?? [] as $name) {
+        $gathered = array_merge($gathered, gather_repos($name, $type, $packages, $ttl - 1));
+    }
+
+    return $gathered;
+}
