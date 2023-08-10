@@ -112,11 +112,14 @@ function map($to_type)
 
     // restore repositories as needed, in the target type
 
+    $hasPathRepos = false;
+
     foreach (array_keys((array) $composer->require) as $name) {
         foreach (gather_repos($name, $to_type, $custom_packages) ?? [] as $r) {
             if (!@$urls_added[$r->url]) {
                 $composer->repositories[] = $r;
                 $urls_added[$r->url] = true;
+                $hasPathRepos = $hasPathRepos || @$r->type == 'path';
             }
         }
     }
@@ -136,6 +139,14 @@ function map($to_type)
         $composer->require = (object) $require;
     } else {
         unset($composer->require);
+    }
+
+    // inject stability
+
+    unset($composer->{"minimum-stability"});
+
+    if ($hasPathRepos) {
+        $composer->{"minimum-stability"} = 'dev';
     }
 
     // sort the root

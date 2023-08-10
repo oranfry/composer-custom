@@ -2,7 +2,7 @@
 
 A tool to remporarily change custom composer repositories to local path ones
 
-## Use Cases
+## Use cases
 
 This tool is useful when you're developing a project that uses composer, and some of the dependencies are also packages you are responsible for. Specifically, it eases development by automating the switching of `composer.json` between **remote** and **local** state.
 
@@ -62,3 +62,18 @@ You will see that repositories are modified and added as necessary in `composer.
 When your ready to commit, back on the command line, go to your main project and run `composer-custom remote`.
 
 That's it! Enjoy!
+
+## Note on Composer minimum-stability
+
+The tool takes control of composer's `minimum-stability` setting.
+
+- If you're not using that setting (i.e., accepting the default of `stable`), you won't have any issues.
+- If you are explicitly setting a minimum stablility, the tool may remove the setting at some point.
+    - If you were using the default (`stable`), you may choose to commit this change and you will have no further issues (unless composer changes the default one day!).
+    - If you were using a non-default value, you will find yourself in competition with the tool for control of the setting! If this is you, please let me know your use case and I will consider aadding feature for shared control of that setting.
+
+The reason for this behaviour is that composer can't see tags for repositories of type `path`. This makes composer believe the your local repositories have the lowest stability rating (`dev`) which would prevent doing a successful `composer update`.
+
+To make things go smoothly, the tool injects `"minimum-stability": "dev"` into `composer.json` if any injected repository(ies) is of type `path`. The general intention is that this would only happen when switching to **local** state, but this is not enforced.
+
+When switching back to a state that doesn't use `path`-type repositories (typically, the **remote** state), the tool has no record of any previous value for `minimum-stability`, which is why it has to make an assumption. Namely, it assumes you were not using the setting at all.
