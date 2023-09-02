@@ -94,8 +94,18 @@ function map($to_type)
 
     $composer = json_decode(file_get_contents($composer_file));
 
+    if (property_exists($composer, 'extra') && !is_object($composer->extra)) {
+        error_log("Error: Composer custom uses the composer 'composer->extra->composer_custom' config to store backup data, so 'composer->extra' must be an object if defined");
+        exit(1);
+    }
+
     $composer->repositories ??= [];
     $composer->require ??= [];
+
+    if ($to_type == 'local') {
+        $composer->extra ??= (object) [];
+        $composer->extra->composer_custom ??= (object) [];
+    }
 
     $orig_composer = json_decode(json_encode($composer)); // deep clone
     $urls_added = [];
@@ -112,15 +122,64 @@ function map($to_type)
 
     // restore repositories as needed, in the target type
 
-    $hasPathRepos = false;
+    $affected_requires = [];
 
     foreach (array_keys((array) $composer->require) as $name) {
         foreach (gather_repos($name, $to_type, $custom_packages) ?? [] as $r) {
             if (!@$urls_added[$r->url]) {
                 $composer->repositories[] = $r;
                 $urls_added[$r->url] = true;
-                $hasPathRepos = $hasPathRepos || @$r->type == 'path';
             }
+
+            if (!in_array($name, $affected_requires)) {
+                $affected_requires[] = $name;
+            }
+        }
+    }
+
+    // accept any version in local state, original version in remote state
+
+    if ($to_type == 'local') {
+        foreach ($affected_requires as $name) {
+            if (!$backup = @$composer->extra->composer_custom->require->$name) {
+                $composer->extra->composer_custom->require ??= (object) [];
+                $composer->extra->composer_custom->require->$name = $composer->require->$name;
+                $composer->require->$name = '*';
+            }
+        }
+    } else {
+        foreach (array_keys((array) $composer->require) as $name) {
+            if ($backup = @$composer->extra->composer_custom->require->$name) {
+                $composer->require->$name = $backup;
+            }
+        }
+    }
+
+    // inject stability
+
+    $has_backup = property_exists($composer->extra->composer_custom, 'minimum-stability');
+
+    if ($to_type == 'local') {
+        if (!$has_backup) {
+            $composer->extra->composer_custom->{"minimum-stability"} = @$composer->{"minimum-stability"};
+        }
+
+        $composer->{"minimum-stability"} = 'dev';
+    } elseif ($has_backup) {
+        if ($backup = $composer->extra->composer_custom->{"minimum-stability"}) {
+            $composer->{"minimum-stability"} = $backup;
+        } else {
+            unset($composer->{"minimum-stability"});
+        }
+    }
+
+    // clean up backup data in remote state
+
+    if ($to_type == 'remote') {
+        unset($composer->extra->composer_custom);
+
+        if (!(array) $composer->extra) {
+            unset($composer->extra);
         }
     }
 
@@ -139,14 +198,6 @@ function map($to_type)
         $composer->require = (object) $require;
     } else {
         unset($composer->require);
-    }
-
-    // inject stability
-
-    unset($composer->{"minimum-stability"});
-
-    if ($hasPathRepos) {
-        $composer->{"minimum-stability"} = 'dev';
     }
 
     // sort the root

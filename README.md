@@ -1,6 +1,6 @@
 # Composer Custom
 
-A tool to remporarily change custom composer repositories to local path ones
+A tool to temporarily change custom composer repositories during development
 
 ## Use cases
 
@@ -10,11 +10,11 @@ When your project depends on other custom projects, you may have found it can be
 
 My solution to this issue was to put my project into a special, **local** state before doing development.
 
-I keep permanent copies of all the the collected dependecies on my machine, off to the side (`~/deps/lib1`, `~/deps/lib2`, etc.). Before starting development on a main project, I change all the custom repositories in `composer.json` to `type=path`, the `url` to the the appropriate path (e.g., `/home/myuser/deps/lib1`), then run `composer update`. From this state, you can make changes directly in `~/deps/*` and they will apply immediately. You can commit and push changes in the dependencies freely as you develop, too.
+I keep permanent copies of all the the collected dependecies on my machine, off to the side (`~/deps/lib1`, `~/deps/lib2`, etc.). Before starting development on a main project, I change all the custom repositories in `composer.json` to `type=path`, the `url` to the the appropriate path (e.g., `/home/myuser/deps/lib1`), then run `composer update`. From this state, I can make changes directly in `~/deps/*` and they will apply immediately. I can commit and push changes in the dependencies freely as I develop, too.
 
 Before commiting changes to the main project, I would change all the custom repository types and urls back to what they were (e.g., `vcs` for the type, `https://gitlab.com/myuser/lib1.git` for the url), and run `composer update` again. This reverts all traces of referring to dependencies on the local machine, ready to push your changes back to a general audience.
 
-An alternative preparation for committing is to simply revert `composer.json` and `composer.lock` with your version control system. However, by doing this you may inadvertently wipe out other intentional changes to `composer.json`, or some desired updates to `composer.lock`. By following a process to convert `composer.json` between **remote** and **local** states and relying on `composer update`, you work on other aspects of composer at any time.
+An alternative preparation for committing is to simply revert `composer.json` and `composer.lock` with your version control system. However, by doing this you may inadvertently wipe out other changes to `composer.json` intented to be permanent, or some desired updates to `composer.lock`. By following a process to convert `composer.json` between **remote** and **local** states and relying on `composer update`, you can freely work on all aspects of composer at any time.
 
 The process works just as well for dependencies that are public (i.e., listed on packagist.org). In this case, instead of changing the url of an existing repository back and forth, we're adding and removing a repository to stand in for (override) the public one during development.
 
@@ -41,7 +41,7 @@ The config is in JSON format, like so
 }
 ```
 
-Each `{...package config...}` contains at least `local`, and optionally `remote` and `require`.
+Each `{...package config...}` contains at least `local`, and optionally `remote` and/or `require`.
 
 ```
 {
@@ -51,9 +51,9 @@ Each `{...package config...}` contains at least `local`, and optionally `remote`
 }
 ```
 
-`local` should be an object, and so should `remote` if it is given. These object will be placed as-is into the `"repositories": [...]` of your `composer.json` as you switch betwee **local** and **remote** state.
+`local` should be an object, and so should `remote` if it is given. These object will be placed as-is into the `"repositories": [...]` of your `composer.json` as you switch between **local** and **remote** state.
 
-`require` is available because, as you know, all custom repository information must reside in the top-level `composer.json` file. If a dependency requires its own dependency, you'll have to replicate this information in this tool's config so the it knows to recurse. The tool does not have access to the dependency repositories themselves, so it can't work out where to recurse to by itself.
+`require` is available because, as you know, all custom repository information must reside in the top-level `composer.json` file. If a dependency requires its own dependency, you'll have to replicate this information here so the tool knows to recurse. The tool does not have access to the dependency repositories themselves, so it can't work out where to recurse to by itself.
 
 Now, on the command line, `cd` to your main project (whereever `composer.json` resides, usually the project root) and run `composer-custom local`.
 
@@ -63,17 +63,6 @@ When your ready to commit, back on the command line, go to your main project and
 
 That's it! Enjoy!
 
-## Note on Composer minimum-stability
+## Notes on versions constraints and minimum stability
 
-The tool takes control of composer's `minimum-stability` setting.
-
-- If you're not using that setting (i.e., accepting the default of `stable`), you won't have any issues.
-- If you are explicitly setting a minimum stablility, the tool may remove the setting at some point.
-    - If you were using the default (`stable`), you may choose to commit this change and you will have no further issues (unless composer changes the default one day!).
-    - If you were using a non-default value, you will find yourself in competition with the tool for control of the setting! If this is you, please let me know your use case and I will consider aadding feature for shared control of that setting.
-
-The reason for this behaviour is that composer can't see tags for repositories of type `path`. This makes composer believe the your local repositories have the lowest stability rating (`dev`) which would prevent doing a successful `composer update`.
-
-To make things go smoothly, the tool injects `"minimum-stability": "dev"` into `composer.json` if any injected repository(ies) is of type `path`. The general intention is that this would only happen when switching to **local** state, but this is not enforced.
-
-When switching back to a state that doesn't use `path`-type repositories (typically, the **remote** state), the tool has no record of any previous value for `minimum-stability`, which is why it has to make an assumption. Namely, it assumes you were not using the setting at all.
+To keep composer happy when using `type=path` repositories, the tool temporarily sets version constraints to `*` and `minimum-stability` to `dev` in the local state. So it can later restore the original values, it keeps backups in your `composer.json` file under `extra->composer_custom`, using a predicatble format.
