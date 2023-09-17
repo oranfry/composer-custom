@@ -123,9 +123,10 @@ function map($to_type)
     // restore repositories as needed, in the target type
 
     $affected_requires = [];
+    $version_changes = [];
 
     foreach (array_keys((array) $composer->require) as $name) {
-        foreach (gather_repos($name, $to_type, $custom_packages) ?? [] as $r) {
+        foreach (gather_repos($name, $to_type, $custom_packages, $version_changes) ?? [] as $r) {
             if (!@$urls_added[$r->url]) {
                 $composer->repositories[] = $r;
                 $urls_added[$r->url] = true;
@@ -157,7 +158,7 @@ function map($to_type)
 
     // inject stability
 
-    $has_backup = property_exists($composer->extra->composer_custom, 'minimum-stability');
+    $has_backup = @$composer->extra && property_exists($composer->extra->composer_custom, 'minimum-stability');
 
     if ($to_type == 'local') {
         if (!$has_backup) {
@@ -170,6 +171,38 @@ function map($to_type)
             $composer->{"minimum-stability"} = $backup;
         } else {
             unset($composer->{"minimum-stability"});
+        }
+    }
+
+    // back up versions in local mode, or restore in remote mode
+
+    if ($to_type == 'local') {
+        foreach ($version_changes as $sub_composer_file => $changes) {
+            $sub_composer = json_decode(file_get_contents($sub_composer_file));
+
+            foreach ($changes as $sub_name => $version) {
+                $sub_composer->require->$sub_name = '*';
+
+                $composer->extra->composer_custom->fiddled_versions ??= (object) [];
+                $composer->extra->composer_custom->fiddled_versions->$sub_composer_file ??= (object) [];
+                $composer->extra->composer_custom->fiddled_versions->$sub_composer_file->$sub_name = $version;
+            }
+
+            file_put_contents($sub_composer_file, json_encode($sub_composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+            echo "Wrote " . $sub_composer_file . "\n";
+        }
+    } else {
+        foreach (@$composer->extra->composer_custom->fiddled_versions ?? [] as $sub_composer_file => $changes) {
+            $sub_composer = json_decode(file_get_contents($sub_composer_file));
+
+            foreach ($changes as $sub_name => $version) {
+                $sub_composer->require->$sub_name = $version;
+            }
+
+            file_put_contents($sub_composer_file, json_encode($sub_composer, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+
+            echo "Wrote " . $sub_composer_file . "\n";
         }
     }
 
@@ -214,7 +247,7 @@ function map($to_type)
     }
 }
 
-function gather_repos(string $name, string $type, array &$packages, int $ttl = 20): array
+function gather_repos(string $name, string $type, array &$packages, array &$version_changes, int $ttl = 20): array
 {
     if ($ttl <= 0) {
         die('Suspected recursion, ttl reached zero');
@@ -226,8 +259,22 @@ function gather_repos(string $name, string $type, array &$packages, int $ttl = 2
 
     $gathered = array_filter([@$package->$type]);
 
-    foreach ($package->require ?? [] as $name) {
-        $gathered = array_merge($gathered, gather_repos($name, $type, $packages, $ttl - 1));
+    if ($type == "local" && $package->$type->type === 'path') {
+        $composer_file = @$package->$type->url . '/composer.json';
+
+        if (file_exists($composer_file) && null !== $composer = json_decode(file_get_contents($composer_file))) {
+            foreach ($composer->require ?? [] as $sub_name => $version) {
+                if (!@$packages[$sub_name]) {
+                    continue;
+                }
+
+                $gathered = array_merge($gathered, gather_repos($sub_name, $type, $packages, $version_changes, $ttl - 1));
+
+                if ($version !== '*') {
+                    $version_changes[$composer_file][$sub_name] = $version;
+                }
+            }
+        }
     }
 
     return $gathered;

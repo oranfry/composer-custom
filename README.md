@@ -41,19 +41,16 @@ The config is in JSON format, like so
 }
 ```
 
-Each `{...package config...}` contains at least `local`, and optionally `remote` and/or `require`.
+Each `{...package config...}` contains at least `local`, and optionally `remote`.
 
 ```
 {
     "local": {"type": "path", "url": "/Users/myuser/deps/lib1"},
-    "remote": {"type": "vcs", "url": "https://github.com/myuser/deps/lib1.git"},
-    "require": ["myuser/lib2"]
+    "remote": {"type": "vcs", "url": "https://github.com/myuser/deps/lib1.git"}
 }
 ```
 
 `local` should be an object, and so should `remote` if it is given. These object will be placed as-is into the `"repositories": [...]` of your `composer.json` as you switch between **local** and **remote** state.
-
-`require` is available because, as you know, all custom repository information must reside in the top-level `composer.json` file. If a dependency requires its own dependency, you'll have to replicate this information here so the tool knows to recurse. The tool does not have access to the dependency repositories themselves, so it can't work out where to recurse to by itself.
 
 Now, on the command line, `cd` to your main project (whereever `composer.json` resides, usually the project root) and run `composer-custom local`.
 
@@ -63,6 +60,8 @@ When your ready to commit, back on the command line, go to your main project and
 
 That's it! Enjoy!
 
-## Notes on versions constraints and minimum stability
+## Notes on version constraints and minimum stability
 
 To keep composer happy when using `type=path` repositories, the tool temporarily sets version constraints to `*` and `minimum-stability` to `dev` in the local state. So it can later restore the original values, it keeps backups in your `composer.json` file under `extra->composer_custom`, using a predicatble format.
+
+It also recurses to dependencies of your project to switch the versions of downstream known packages to `*` in their respective `composer.json` files. As usual it keeps a backup for when it comes time to switch back to remote state. This is experimental and could cause an issue when using `composer-custom` on multiple packages in random order. If this behaviour is not desired, please switch back to version `1.1.0`.
