@@ -263,7 +263,7 @@ function gather_repos(string $name, string $type, array &$packages, array &$vers
 
     $gathered = array_filter([@$package->$type]);
 
-    if ($type == "local" && $package->$type->type === 'path') {
+    if ($package->local->type === 'path') {
         $composer_file = @$package->$type->url . '/composer.json';
 
         if (file_exists($composer_file) && null !== $composer = json_decode(file_get_contents($composer_file))) {
