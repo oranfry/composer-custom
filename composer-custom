@@ -68,6 +68,8 @@ function map($to_type)
             exit(1);
         }
 
+        $package->local->url = str_replace('~', $_SERVER['HOME'], $package->local->url);
+
         if (!@$package->local->type) {
             error_log("Error: $name (local): please provide a type");
             exit(1);
@@ -80,6 +82,8 @@ function map($to_type)
                 error_log("Error: $name (remote): please provide a url");
                 exit(1);
             }
+
+            $package->remote->url = str_replace('~', $_SERVER['HOME'], $package->remote->url);
 
             if (!@$package->remote->type) {
                 error_log("Error: $name (remote): please provide a type");
