@@ -263,20 +263,20 @@ function gather_repos(string $name, string $type, array &$packages, array &$vers
 
     $gathered = array_filter([@$package->$type]);
 
-    if ($package->local->type === 'path') {
-        $composer_file = @$package->$type->url . '/composer.json';
+    if (
+        $package->local->type === 'path'
+        && file_exists($composer_file = @$package->local->url . '/composer.json')
+        && null !== $composer = json_decode(file_get_contents($composer_file))
+    ) {
+        foreach ($composer->require ?? [] as $sub_name => $version) {
+            if (!@$packages[$sub_name]) {
+                continue;
+            }
 
-        if (file_exists($composer_file) && null !== $composer = json_decode(file_get_contents($composer_file))) {
-            foreach ($composer->require ?? [] as $sub_name => $version) {
-                if (!@$packages[$sub_name]) {
-                    continue;
-                }
+            $gathered = array_merge($gathered, gather_repos($sub_name, $type, $packages, $version_changes, $ttl - 1));
 
-                $gathered = array_merge($gathered, gather_repos($sub_name, $type, $packages, $version_changes, $ttl - 1));
-
-                if ($version !== '*') {
-                    $version_changes[$composer_file][$sub_name] = $version;
-                }
+            if ($version !== '*') {
+                $version_changes[$composer_file][$sub_name] = $version;
             }
         }
     }
